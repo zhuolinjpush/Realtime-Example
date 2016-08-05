@@ -1,0 +1,166 @@
+package cn.test.cb;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+
+import kafka.consumer.ConsumerConfig;
+import kafka.consumer.ConsumerIterator;
+import kafka.consumer.KafkaStream;
+import kafka.javaapi.consumer.ConsumerConnector;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import backtype.storm.spout.SpoutOutputCollector;
+import backtype.storm.task.TopologyContext;
+import backtype.storm.topology.OutputFieldsDeclarer;
+import backtype.storm.topology.base.BaseRichSpout;
+import backtype.storm.tuple.Fields;
+import backtype.storm.tuple.Values;
+import cn.j.Constants;
+import cn.j.stats.realtime.msg.entity.ApiMsgData;
+import cn.j.stats.realtime.msg.entity.ApiMsgDataES;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.google.gson.Gson;
+
+public class MsgApiSpout extends BaseRichSpout {
+
+    private static final long serialVersionUID = 1L;
+    private static final Logger LOG = LoggerFactory.getLogger(MsgApiSpout.class);
+
+    private Gson gson;
+    private final String m_zookeeper;
+    private final String m_topic;
+    private final String m_groupId;
+
+    private boolean deactivate = false;
+    private int taskId;
+    private SpoutOutputCollector collector;
+
+    private KafkaStream<byte[], byte[]> m_stream;
+    private ConsumerConnector consumer;
+
+    public MsgApiSpout(String zookeeper, String topic, String groupId) {
+        m_zookeeper = zookeeper;
+        m_topic = topic;
+        m_groupId = groupId;
+    }
+
+    @SuppressWarnings("rawtypes")
+    @Override
+    public void open(Map map, TopologyContext topologyContext, SpoutOutputCollector spoutOutputCollector) {
+        taskId = topologyContext.getThisTaskId();
+        collector = spoutOutputCollector;
+        gson = new Gson();
+        openStream();
+    }
+
+    @Override
+    public void nextTuple() {
+        LOG.info("nextTuple");
+        if(null == m_stream) {
+            openStream();
+        }
+        try{
+            ConsumerIterator<byte[], byte[]> it = m_stream.iterator();
+            while (it.hasNext()) {
+                byte[] ser = it.next().message();
+                if(null != ser) {
+                    String body = new String(ser);
+                    //LOG.info("-api:" + body);
+                    try {
+                        JSONObject obj = JSON.parseObject(body);
+                        int apiType = obj.getInteger("api_type");
+                        ApiMsgDataES amdES = new ApiMsgDataES();
+                        if(apiType < 30) {
+                            ApiMsgData amd = gson.fromJson(body, ApiMsgData.class);
+                            amdES.parseV2Data(amd);
+                        } else {
+                            amdES.parseV3Data(body);
+                        }
+                        int send_source = amdES.getSend_source();
+                        if (0 == send_source) {//api
+                            collector.emit(Constants.TOCB_STREAM, new Values(amdES.getMsg_id(), amdES.getAppkey(), amdES.getItime()));
+                        } else if (1 == send_source) {//portal
+                            collector.emit(Constants.PORTAL_STREAM, new Values(amdES.getMsg_id(), amdES.getAppkey()));
+                        }
+                        
+                    } catch (Exception e) {
+                        LOG.error("Failed to process " + body, e);
+                    }
+                } // end if ser is not null
+                try{
+                    Thread.sleep(2);
+                } catch (Exception e) {
+                    LOG.error("Sleep interrupted.", e);
+                }
+            } // while it.hasNext()
+        } catch (Exception e) {
+            LOG.error("Failed to consume", e);
+            if( !deactivate ) {
+                openStream();
+            }
+        }
+    }
+
+    @Override
+    public void declareOutputFields(OutputFieldsDeclarer declarer) {
+        declarer.declareStream(Constants.TOCB_STREAM, new Fields("msgid", "appkey", "itime"));
+        declarer.declareStream(Constants.PORTAL_STREAM, new Fields("msgid", "appkey"));
+    }
+
+    @Override
+    public void deactivate() {
+        LOG.info("deactivate " + taskId);
+        deactivate = true;
+        shutdownConsumer();
+    }
+
+    @Override
+    public void close() {
+        deactivate();
+    }
+
+
+    private ConsumerConfig createConsumerConfig() {
+        Properties props = new Properties();
+        props.put("offsets.storage", "kafka");
+        props.put("dual.commit.enabled", "false");
+        props.put("auto.commit.interval.ms", "2000");
+        props.put("zookeeper.session.timeout.ms", "12000");
+        props.put("zookeeper.connection.timeout.ms", "10000");
+        props.put("zookeeper.connect", m_zookeeper);
+        props.put("group.id", m_groupId);
+        return new ConsumerConfig(props);
+    }
+
+    private void openStream() {
+        try{
+            shutdownConsumer();
+            consumer = kafka.consumer.Consumer.createJavaConsumerConnector(createConsumerConfig());
+            Map<String, Integer> topicCountMap = new HashMap<>();
+            topicCountMap.put(m_topic, new Integer(1));
+            Map<String, List<KafkaStream<byte[], byte[]>>> consumerMap = consumer.createMessageStreams(topicCountMap);
+            List<KafkaStream<byte[], byte[]>> streams = consumerMap.get(m_topic);
+            LOG.info("stream size is " + streams.size());
+            m_stream = streams.get(0);
+        } catch (Exception e) {
+            LOG.error("Failed to open stream", e);
+        }
+    }
+
+    private void shutdownConsumer() {
+        if(null != consumer) {
+            try {
+                consumer.shutdown();
+            } catch (Exception e) {
+                LOG.error("Failed to shutdown consumer", e);
+            }
+        }
+    }
+
+}
