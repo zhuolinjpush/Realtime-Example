@@ -114,7 +114,7 @@ public class CrashLogESHelper {
                     if (res.getResponse().isExists() && map.containsKey(res.getId())) {
                         existIdsSet.add(res.getId());
                         CrashLogVo vo = map.get(res.getId());
-                        //logger.info(res.getResponse().getSourceAsString());
+                        logger.info(res.getResponse().getSourceAsString());
                         logger.info("exist id=" + res.getId() + " happen_amount=" + res.getResponse().getSource().get("happen_amount"));
                         Object obj = res.getResponse().getSource().get("happen_amount");
                         long errCount = map.get(res.getId()).getErrcount();
