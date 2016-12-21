@@ -83,6 +83,10 @@ public class SendtimeCBHelper {
                     .toList()
                     .toBlocking()
                     .single();
+        } catch (RequestCancelledException rce) {
+            logger.error("request cancel error", rce);
+            close();
+            init();
         } catch (Exception e) {
             logger.error("query error", e);
         }
