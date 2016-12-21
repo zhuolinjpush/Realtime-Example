@@ -66,6 +66,30 @@ public class SendtimeCBHelper {
         return this.bucket.get(key, CouchbaseAsyncBucket.STRING_TRANSCODER.documentType());
     }
     
+    public List<JsonDocument> query(List<String> uids) {
+        long start = System.currentTimeMillis();
+        List<JsonDocument> data = new ArrayList<JsonDocument>();
+        try {
+            data = Observable
+                    .from(uids)
+                    .flatMap(new Func1<String, Observable<JsonDocument>>() {
+
+                        @Override
+                        public Observable<JsonDocument> call(String uid) {
+                            return bucket.async().get(uid);
+                        }
+                        
+                    })
+                    .toList()
+                    .toBlocking()
+                    .single();
+        } catch (Exception e) {
+            logger.error("query error", e);
+        }
+        logger.info("query uid size " + uids.size() + ", res size " + data.size() + " cost time " + (System.currentTimeMillis() - start) + " ms");
+        return data;
+    }
+    
     public Map<String, Object> query(Set<String> rowkeys) {
         long start = System.currentTimeMillis();
         Map<String, Object> data = new HashMap<String, Object>();
