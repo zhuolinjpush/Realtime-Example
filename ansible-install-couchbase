@@ -1,0 +1,44 @@
+1、安装ansible-playbook 
+     sudo yum install ansible
+2、需要定义install_couchbase.yml
+      还有hosts ，设置主机
+      [cb_hosts]
+      172.16.202.1
+     ansible.cfg 配置文件：
+[defaults]
+hostfile = hosts
+host_key_checking = False
+nocows = 1
+
+[ssh_connection]
+ssh_args = -o ForwardAgent=yes
+
+3、执行 ansible-playbook install_couchbase.yml --extra-vars "hosts=cb_hosts" -k  需要输入登录机器的密码  【这里需要切换到登陆用户】
+
+以下是install_couchbase.yml
+- hosts: "{{hosts}}"
+  gather_facts: False
+  tasks:
+  - name: make sure build directory exists
+    file: path=~/build state=directory mode=0700
+  - name: install couchbase rpm package 
+    yum:
+      name: 'http://packages.couchbase.com/releases/couchbase-release/couchbase-release-1.0-0-x86_64.rpm'
+      state: present
+    become: yes
+    become_method: sudo
+  - name: install or update couchbase
+    yum: pkg={{item}} state=latest
+    with_items:
+      - libcouchbase-devel
+      - libcouchbase2-bin
+    become: yes
+    become_method: sudo
+  - name: install couchbase python SDK 
+    pip:
+      executable=/usr/local/anaconda2/bin/pip
+      name=couchbase
+    become: yes
+    become_method: sudo
+  - name: clean
+    file: path=~/build/couchbase-release-1.0-0-x86_64.rpm state=absent
