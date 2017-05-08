@@ -1,10 +1,11 @@
 1、安装ansible-playbook 
      sudo yum install ansible
 2、需要定义install_couchbase.yml
-      还有hosts ，设置主机
-      [cb_hosts]
-      172.16.202.1
-     ansible.cfg 配置文件：
+还有hosts ，设置主机
+[cb_hosts]
+172.16.202.1
+
+ansible.cfg 配置文件：
 [defaults]
 hostfile = hosts
 host_key_checking = False
